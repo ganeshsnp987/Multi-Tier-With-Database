@@ -16,7 +16,7 @@ spec:
       labels:
         app: mysql
     spec:
-      terminationGracePeriodSeconds: 30
+      terminationGracePeriodSeconds: 10
       containers:
         - image: mysql:8
           name: mysql
@@ -64,16 +64,13 @@ spec:
     matchLabels:
       app: bankapp
   strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0
+    type: Recreate      # ✅ Kill old pod FIRST, then start new one - no stuck termination
   template:
     metadata:
       labels:
         app: bankapp
     spec:
-      terminationGracePeriodSeconds: 30
+      terminationGracePeriodSeconds: 10
       initContainers:
         - name: wait-for-mysql
           image: busybox
@@ -85,7 +82,7 @@ spec:
         - name: bankapp
           image: ganeshsnp987/bankapp:latest
           ports:
-            - containerPort: 8086
+            - containerPort: 8080   # ✅ App hardcodes 8080 internally, we accept that
           env:
             - name: SPRING_DATASOURCE_URL
               value: "jdbc:mysql://mysql-service:3306/bankappdb?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true"
@@ -93,19 +90,17 @@ spec:
               value: root
             - name: SPRING_DATASOURCE_PASSWORD
               value: "Test@123"
-            # ✅ Spring Boot runs on 8086 inside K8s pod
-            - name: SERVER_PORT
-              value: "8086"
+          # ✅ Probe on 8080 - the port the app actually listens on
           readinessProbe:
             tcpSocket:
-              port: 8086
-            initialDelaySeconds: 20
+              port: 8080
+            initialDelaySeconds: 30
             periodSeconds: 10
             failureThreshold: 6
           livenessProbe:
             tcpSocket:
-              port: 8086
-            initialDelaySeconds: 60
+              port: 8080
+            initialDelaySeconds: 90
             periodSeconds: 15
             failureThreshold: 3
 
@@ -123,5 +118,5 @@ spec:
   ports:
     - protocol: TCP
       port: 80
-      targetPort: 8086
-      nodePort: 30085
+      targetPort: 8080    # ✅ Points to actual app port 8080 inside pod
+      nodePort: 30085     # ✅ External access on 30085 - your original nodePort
