@@ -24,7 +24,7 @@ spec:
             - name: MYSQL_ROOT_PASSWORD
               value: "Test@123"
             - name: MYSQL_DATABASE
-              value: "bankappdb"
+              value: "bankdb"   # ✅ FIXED (same everywhere)
           ports:
             - containerPort: 3306
               name: mysql
@@ -64,7 +64,7 @@ spec:
     matchLabels:
       app: bankapp
   strategy:
-    type: Recreate      # ✅ Kill old pod FIRST, then start new one - no stuck termination
+    type: Recreate
   template:
     metadata:
       labels:
@@ -82,15 +82,14 @@ spec:
         - name: bankapp
           image: ganeshsnp987/bankapp:latest
           ports:
-            - containerPort: 8080   # ✅ App hardcodes 8080 internally, we accept that
+            - containerPort: 8080
           env:
             - name: SPRING_DATASOURCE_URL
-              value: "jdbc:mysql://mysql-service:3306/bankappdb?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true"
+              value: "jdbc:mysql://mysql-service:3306/bankdb?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true"  # ✅ FIXED
             - name: SPRING_DATASOURCE_USERNAME
               value: root
             - name: SPRING_DATASOURCE_PASSWORD
               value: "Test@123"
-          # ✅ Probe on 8080 - the port the app actually listens on
           readinessProbe:
             tcpSocket:
               port: 8080
@@ -118,5 +117,5 @@ spec:
   ports:
     - protocol: TCP
       port: 80
-      targetPort: 8080    # ✅ Points to actual app port 8080 inside pod
-      nodePort: 30085     # ✅ External access on 30085 - your original nodePort
+      targetPort: 8080
+      nodePort: 30085
