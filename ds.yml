@@ -4,6 +4,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: mysql
+  namespace: webapps
 spec:
   selector:
     matchLabels:
@@ -15,56 +16,99 @@ spec:
       labels:
         app: mysql
     spec:
+      terminationGracePeriodSeconds: 30
       containers:
-      - image: mysql:8
-        name: mysql
-        env:
-        - name: MYSQL_ROOT_PASSWORD
-          value: "Test@123"
-        - name: MYSQL_DATABASE
-          value: "bankappdb"
-        ports:
-        - containerPort: 3306
+        - image: mysql:8
           name: mysql
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              value: "Test@123"
+            - name: MYSQL_DATABASE
+              value: "bankappdb"
+          ports:
+            - containerPort: 3306
+              name: mysql
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "mysqladmin ping -u root -pTest@123"
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 6
+
 ---
 # MySQL Service
 apiVersion: v1
 kind: Service
 metadata:
   name: mysql-service
+  namespace: webapps
 spec:
   ports:
-  - port: 3306
+    - port: 3306
   selector:
     app: mysql
+
 ---
 # Java Application Deployment
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: bankapp
+  namespace: webapps
 spec:
   replicas: 1
   selector:
     matchLabels:
       app: bankapp
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   template:
     metadata:
       labels:
         app: bankapp
     spec:
+      terminationGracePeriodSeconds: 30
+      initContainers:
+        - name: wait-for-mysql
+          image: busybox
+          command:
+            - sh
+            - -c
+            - "until nc -z mysql-service 3306; do echo 'Waiting for MySQL...'; sleep 3; done; echo 'MySQL is ready!'"
       containers:
-      - name: bankapp
-        image: ganeshsnp987/bankapp:latest
-        ports:
-        - containerPort: 8080
-        env:
-        - name: SPRING_DATASOURCE_URL
-          value: jdbc:mysql://mysql-service:3306/bankappdb?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
-        - name: SPRING_DATASOURCE_USERNAME
-          value: root
-        - name: SPRING_DATASOURCE_PASSWORD
-          value: Test@123
+        - name: bankapp
+          image: ganeshsnp987/bankapp:latest
+          ports:
+            - containerPort: 8086
+          env:
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:mysql://mysql-service:3306/bankappdb?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true"
+            - name: SPRING_DATASOURCE_USERNAME
+              value: root
+            - name: SPRING_DATASOURCE_PASSWORD
+              value: "Test@123"
+            # ✅ Spring Boot runs on 8086 inside K8s pod
+            - name: SERVER_PORT
+              value: "8086"
+          readinessProbe:
+            tcpSocket:
+              port: 8086
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            tcpSocket:
+              port: 8086
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            failureThreshold: 3
+
 ---
 # Bank Application Service
 apiVersion: v1
@@ -73,7 +117,7 @@ metadata:
   name: bankapp-service
   namespace: webapps
 spec:
-  type: NodePort        # ← must be NodePort
+  type: NodePort
   selector:
     app: bankapp
   ports:
